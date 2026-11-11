@@ -1,34 +1,36 @@
-export const config = {
-  runtime: 'edge',
-};
+export default async function handler(req, res) {
+  // گرفتن مسیر درخواست و حذف /api از ابتدای آن
+  const pathAndQuery = req.url.replace(/^\/api/, '');
+  const targetUrl = `https://generativelanguage.googleapis.com${pathAndQuery}`;
 
-export default async function handler(req) {
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/api/, '');
-  const targetUrl = `https://generativelanguage.googleapis.com${path}${url.search}`;
-
-  const headers = new Headers(req.headers);
-  headers.delete('host');
-  headers.delete('cf-connecting-ip');
-  headers.delete('x-forwarded-for');
-  headers.delete('x-real-ip');
+  // آماده‌سازی هدرها
+  const headers = { ...req.headers };
+  delete headers.host;
+  delete headers['content-length'];
+  delete headers['x-forwarded-for'];
+  delete headers['x-real-ip'];
 
   try {
+    // ارسال درخواست به گوگل
     const response = await fetch(targetUrl, {
       method: req.method,
       headers: headers,
-      body: req.body,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
     });
 
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
+    // خواندن پاسخ به صورت متن
+    const data = await response.text();
+
+    // کپی کردن هدرهای پاسخ گوگل
+    for (const [key, value] of response.headers.entries()) {
+      if (!['content-encoding', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    }
+
+    // ارسال پاسخ نهایی به ربات
+    res.status(response.status).send(data);
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    res.status(500).json({ error: error.message });
   }
 }
